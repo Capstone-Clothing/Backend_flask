@@ -168,41 +168,46 @@ type_model = type_model.to(device)
 
 @app.route('/predict', methods=['POST'])
 def predict_api():
-    data = request.json
-    bucket_name = data['codinavi-image']
-    key = data['key']
-    aws_access_key = data['AKIAQ3EGSV5HO7UDUP6D']
-    aws_secret_key = data['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']
+    try:
+        data = request.json
+        bucket_name = data['codinavi-image']
+        key = data['key']
+        aws_access_key = data['AKIAQ3EGSV5HO7UDUP6D']
+        aws_secret_key = data['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']
 
-    image = download_image_from_s3(bucket_name, key, aws_access_key, aws_secret_key)
+        image = download_image_from_s3(bucket_name, key, aws_access_key, aws_secret_key)
 
-    target_size = (224, 224)
-    preprocessed_image = preprocess_image(image, target_size)
+        target_size = (224, 224)
+        preprocessed_image = preprocess_image(image, target_size)
 
-    pattern_predictions = predict(preprocessed_image, pattern_model, device)
-    type_predictions = predict(preprocessed_image, type_model, device)
+        pattern_predictions = predict(preprocessed_image, pattern_model, device)
+        type_predictions = predict(preprocessed_image, type_model, device)
 
-    predicted_pattern = decode_predictions(pattern_predictions, pattern_classes)
-    predicted_type = decode_predictions(type_predictions, type_classes)
+        predicted_pattern = decode_predictions(pattern_predictions, pattern_classes)
+        predicted_type = decode_predictions(type_predictions, type_classes)
 
-    image = np.array(image)
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-    pixels = np.float32(image.reshape(-1, 3))
-    n_colors = 5
-    _, labels, palette = cv2.kmeans(pixels, n_colors, None,
-                                    (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2), 10,
-                                    cv2.KMEANS_RANDOM_CENTERS)
-    _, counts = np.unique(labels, return_counts=True)
-    dominant_color = palette[np.argmax(counts)]
-    dominant_color_name = extract_color([dominant_color])[0]
+        image = np.array(image)
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        pixels = np.float32(image.reshape(-1, 3))
+        n_colors = 5
+        _, labels, palette = cv2.kmeans(pixels, n_colors, None,
+                                        (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2), 10,
+                                        cv2.KMEANS_RANDOM_CENTERS)
+        _, counts = np.unique(labels, return_counts=True)
+        dominant_color = palette[np.argmax(counts)]
+        dominant_color_name = extract_color([dominant_color])[0]
 
-    result = {
-        "pattern": predicted_pattern,
-        "type": predicted_type,
-        "dominant_color": dominant_color_name
-    }
+        result = {
+            "pattern": predicted_pattern,
+            "type": predicted_type,
+            "dominant_color": dominant_color_name
+        }
 
-    return jsonify(result)
+        return jsonify(result)
+    except Exception as e:
+        app.logger.error(f"Error in /predict: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 
 if __name__ == '__main__':
