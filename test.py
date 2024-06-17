@@ -184,7 +184,7 @@ def predict_api():
     app.logger.info("Received request: %s", request.json)
     try:
         data = request.json
-        bucket_name = data['codinaviImage']
+        bucket_name = data['codinavi_image']
         key = data['key']
         
         app.logger.info(f"Received request to download image from S3 - Bucket: {bucket_name}, Key: {key}")
