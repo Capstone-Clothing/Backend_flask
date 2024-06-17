@@ -153,8 +153,8 @@ def extract_color(rgb_list):
         color_name_list.append(closest_color)
     return color_name_list
 
-pattern_model_path = "/fashion_classifier_model_p.pth"  # 옷의 무늬를 예측하는 모델
-type_model_path = "/fashion_classifier_model.pth"  # 옷의 종류를 예측하는 모델
+pattern_model_path = "./fashion_classifier_model_p.pth"  # 옷의 무늬를 예측하는 모델
+type_model_path = "./fashion_classifier_model.pth"  # 옷의 종류를 예측하는 모델
 type_classes = ['재킷', '조거팬츠', '짚업', '스커트', '가디건', '점퍼', '티셔츠', '셔츠', '팬츠', '드레스', '패딩', '청바지', '점프수트', '니트웨어', '베스트', '코트', '브라탑', '블라우스', '탑', '후드티', '래깅스']
 pattern_classes = ['페이즐리', '하트', '지그재그', '깅엄', '하운즈 투스', '도트', '레터링', '믹스', '뱀피', '해골', '체크', '무지', '카무플라쥬', '그라데이션', '스트라이프', '호피', '아가일', '그래픽', '지브라', '타이다이', '플로럴']
 
