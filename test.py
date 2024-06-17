@@ -81,20 +81,29 @@ hsv = list(HSV.keys())
 hsv_len = len(hsv)
 
 
-def download_image_from_s3(bucket_name, key, aws_access_key, aws_secret_key):
-    s3 = boto3.client('s3', aws_access_key_id=aws_access_key, aws_secret_access_key=aws_secret_key)
-    response = s3.get_object(Bucket=bucket_name, Key=key)
-    image_data = response['Body'].read()
-    image = Image.open(BytesIO(image_data))
-    return image
+def download_image_from_s3(bucket_name, key):
+    try:
+        s3 = boto3.client('s3')
+        app.logger.debug(f"Attempting to download image from S3 bucket: {bucket_name}, key: {key}")
+        response = s3.get_object(Bucket=bucket_name, Key=key)
+        image_data = response['Body'].read()
+        image = Image.open(BytesIO(image_data))
+        return image
+    except Exception as e:
+        app.logger.error(f"Error downloading image from S3: {e}")
+        raise
 
 def preprocess_image(image, target_size):
-    transform = transforms.Compose([
-        transforms.Resize(target_size),
-        transforms.ToTensor(),
-    ])
-    image = transform(image).unsqueeze(0)
-    return image
+    try:
+        transform = transforms.Compose([
+            transforms.Resize(target_size),
+            transforms.ToTensor(),
+        ])
+        image = transform(image).unsqueeze(0)
+        return image
+    except Exception as e:
+        app.logger.error(f"Error preprocessing image: {e}")
+        raise
 
 class CNNModel(nn.Module):
     def __init__(self, num_classes):
@@ -119,39 +128,56 @@ class CNNModel(nn.Module):
         return x
 
 def load_model(model_path, num_classes):
-    model = CNNModel(num_classes)
-    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-    model.eval()
-    return model
+    try:
+        app.logger.debug(f"Loading model from {model_path}")
+        model = CNNModel(num_classes)
+        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+        model.eval()
+        return model
+    except Exception as e:
+        app.logger.error(f"Error loading model: {e}")
+        raise
 
 def predict(image, model, device):
-    image = image.to(device)
-    with torch.no_grad():
-        outputs = model(image)
-    return outputs
+    try:
+        image = image.to(device)
+        with torch.no_grad():
+            outputs = model(image)
+        return outputs
+    except Exception as e:
+        app.logger.error(f"Error in model prediction: {e}")
+        raise
 
 def decode_predictions(predictions, class_labels):
-    _, max_index = torch.max(predictions, 1)
-    predicted_label = class_labels[max_index.item()]
-    return predicted_label
+    try:
+        _, max_index = torch.max(predictions, 1)
+        predicted_label = class_labels[max_index.item()]
+        return predicted_label
+    except Exception as e:
+        app.logger.error(f"Error decoding predictions: {e}")
+        raise
 
 def extract_color(rgb_list):
-    for i in range(len(rgb_list)):
-        rgb_list[i] = np.uint8([[rgb_list[i]]])
-        rgb_list[i] = cv2.cvtColor(rgb_list[i], cv2.COLOR_RGB2HSV)
-        rgb_list[i] = rgb_list[i][0][0]
+    try:
+        for i in range(len(rgb_list)):
+            rgb_list[i] = np.uint8([[rgb_list[i]]])
+            rgb_list[i] = cv2.cvtColor(rgb_list[i], cv2.COLOR_RGB2HSV)
+            rgb_list[i] = rgb_list[i][0][0]
 
-    color_name_list = []
-    for i in range(len(rgb_list)):
-        minimum = float('inf')
-        closest_color = None
-        for j in range(hsv_len):
-            chai = sum(abs(rgb_list[i][k] - hsv[j][k]) * (3 - k) for k in range(3))
-            if chai < minimum:
-                minimum = chai
-                closest_color = HSV[hsv[j]]
-        color_name_list.append(closest_color)
-    return color_name_list
+        color_name_list = []
+        for i in range(len(rgb_list)):
+            minimum = float('inf')
+            closest_color = None
+            for j in range(hsv_len):
+                chai = sum(abs(rgb_list[i][k] - hsv[j][k]) * (3 - k) for k in range(3))
+                if chai < minimum:
+                    minimum = chai
+                    closest_color = HSV[hsv[j]]
+            color_name_list.append(closest_color)
+        return color_name_list
+    except Exception as e:
+        app.logger.error(f"Error extracting color: {e}")
+        raise
 
 pattern_model_path = "./fashion_classifier_model_p.pth"  # 옷의 무늬를 예측하는 모델
 type_model_path = "./fashion_classifier_model.pth"  # 옷의 종류를 예측하는 모델
@@ -165,17 +191,15 @@ type_model = load_model(type_model_path, len(type_classes))
 pattern_model = pattern_model.to(device)
 type_model = type_model.to(device)
 
-
 @app.route('/predict', methods=['POST'])
 def predict_api():
     try:
         data = request.json
+        app.logger.debug(f"Request data: {data}")
         bucket_name = data['codinavi-image']
         key = data['key']
-        aws_access_key = data['AKIAQ3EGSV5HO7UDUP6D']
-        aws_secret_key = data['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']
 
-        image = download_image_from_s3(bucket_name, key, aws_access_key, aws_secret_key)
+        image = download_image_from_s3(bucket_name, key)
 
         target_size = (224, 224)
         preprocessed_image = preprocess_image(image, target_size)
@@ -207,8 +231,6 @@ def predict_api():
     except Exception as e:
         app.logger.error(f"Error in /predict: {e}")
         return jsonify({"error": str(e)}), 500
-
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
