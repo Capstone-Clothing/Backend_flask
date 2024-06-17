@@ -81,29 +81,34 @@ hsv = list(HSV.keys())
 hsv_len = len(hsv)
 
 
+if not app.debug:
+    handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=1)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
+    )
+    handler.setFormatter(formatter)
+    app.logger.addHandler(handler)
+
 def download_image_from_s3(bucket_name, key):
+    s3 = boto3.client('s3')
+    app.logger.info(f"Attempting to download image from bucket: {bucket_name}, key: {key}")
     try:
-        s3 = boto3.client('s3')
-        app.logger.debug(f"Attempting to download image from S3 bucket: {bucket_name}, key: {key}")
         response = s3.get_object(Bucket=bucket_name, Key=key)
         image_data = response['Body'].read()
         image = Image.open(BytesIO(image_data))
         return image
-    except Exception as e:
-        app.logger.error(f"Error downloading image from S3: {e}")
+    except s3.exceptions.NoSuchKey:
+        app.logger.error(f"NoSuchKey error: Bucket: {bucket_name}, Key: {key}")
         raise
 
 def preprocess_image(image, target_size):
-    try:
-        transform = transforms.Compose([
-            transforms.Resize(target_size),
-            transforms.ToTensor(),
-        ])
-        image = transform(image).unsqueeze(0)
-        return image
-    except Exception as e:
-        app.logger.error(f"Error preprocessing image: {e}")
-        raise
+    transform = transforms.Compose([
+        transforms.Resize(target_size),
+        transforms.ToTensor(),
+    ])
+    image = transform(image).unsqueeze(0)
+    return image
 
 class CNNModel(nn.Module):
     def __init__(self, num_classes):
@@ -128,59 +133,42 @@ class CNNModel(nn.Module):
         return x
 
 def load_model(model_path, num_classes):
-    try:
-        app.logger.debug(f"Loading model from {model_path}")
-        model = CNNModel(num_classes)
-        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-        model.eval()
-        return model
-    except Exception as e:
-        app.logger.error(f"Error loading model: {e}")
-        raise
+    model = CNNModel(num_classes)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.eval()
+    return model
 
 def predict(image, model, device):
-    try:
-        image = image.to(device)
-        with torch.no_grad():
-            outputs = model(image)
-        return outputs
-    except Exception as e:
-        app.logger.error(f"Error in model prediction: {e}")
-        raise
+    image = image.to(device)
+    with torch.no_grad():
+        outputs = model(image)
+    return outputs
 
 def decode_predictions(predictions, class_labels):
-    try:
-        _, max_index = torch.max(predictions, 1)
-        predicted_label = class_labels[max_index.item()]
-        return predicted_label
-    except Exception as e:
-        app.logger.error(f"Error decoding predictions: {e}")
-        raise
+    _, max_index = torch.max(predictions, 1)
+    predicted_label = class_labels[max_index.item()]
+    return predicted_label
 
 def extract_color(rgb_list):
-    try:
-        for i in range(len(rgb_list)):
-            rgb_list[i] = np.uint8([[rgb_list[i]]])
-            rgb_list[i] = cv2.cvtColor(rgb_list[i], cv2.COLOR_RGB2HSV)
-            rgb_list[i] = rgb_list[i][0][0]
+    for i in range(len(rgb_list)):
+        rgb_list[i] = np.uint8([[rgb_list[i]]])
+        rgb_list[i] = cv2.cvtColor(rgb_list[i], cv2.COLOR_RGB2HSV)
+        rgb_list[i] = rgb_list[i][0][0]
 
-        color_name_list = []
-        for i in range(len(rgb_list)):
-            minimum = float('inf')
-            closest_color = None
-            for j in range(hsv_len):
-                chai = sum(abs(rgb_list[i][k] - hsv[j][k]) * (3 - k) for k in range(3))
-                if chai < minimum:
-                    minimum = chai
-                    closest_color = HSV[hsv[j]]
-            color_name_list.append(closest_color)
-        return color_name_list
-    except Exception as e:
-        app.logger.error(f"Error extracting color: {e}")
-        raise
+    color_name_list = []
+    for i in range(len(rgb_list)):
+        minimum = float('inf')
+        closest_color = None
+        for j in range(hsv_len):
+            chai = sum(abs(rgb_list[i][k] - hsv[j][k]) * (3 - k) for k in range(3))
+            if chai < minimum:
+                minimum = chai
+                closest_color = HSV[hsv[j]]
+        color_name_list.append(closest_color)
+    return color_name_list
 
-pattern_model_path = "./fashion_classifier_model_p.pth"  # 옷의 무늬를 예측하는 모델
-type_model_path = "./fashion_classifier_model.pth"  # 옷의 종류를 예측하는 모델
+pattern_model_path = "./fashion_classifier_model_p.pth"
+type_model_path = "./fashion_classifier_model.pth"
 type_classes = ['재킷', '조거팬츠', '짚업', '스커트', '가디건', '점퍼', '티셔츠', '셔츠', '팬츠', '드레스', '패딩', '청바지', '점프수트', '니트웨어', '베스트', '코트', '브라탑', '블라우스', '탑', '후드티', '래깅스']
 pattern_classes = ['페이즐리', '하트', '지그재그', '깅엄', '하운즈 투스', '도트', '레터링', '믹스', '뱀피', '해골', '체크', '무지', '카무플라쥬', '그라데이션', '스트라이프', '호피', '아가일', '그래픽', '지브라', '타이다이', '플로럴']
 
@@ -193,19 +181,23 @@ type_model = type_model.to(device)
 
 @app.route('/predict', methods=['POST'])
 def predict_api():
+    app.logger.info("Received request: %s", request.json)
     try:
         data = request.json
-        app.logger.debug(f"Request data: {data}")
-        bucket_name = data['codinavi-image']
+        bucket_name = data['codinaviImage']
         key = data['key']
-
+        
+        app.logger.info(f"Received request to download image from S3 - Bucket: {bucket_name}, Key: {key}")
         image = download_image_from_s3(bucket_name, key)
+        app.logger.info("Image downloaded successfully")
 
         target_size = (224, 224)
         preprocessed_image = preprocess_image(image, target_size)
+        app.logger.info("Image preprocessed successfully")
 
         pattern_predictions = predict(preprocessed_image, pattern_model, device)
         type_predictions = predict(preprocessed_image, type_model, device)
+        app.logger.info("Prediction successful")
 
         predicted_pattern = decode_predictions(pattern_predictions, pattern_classes)
         predicted_type = decode_predictions(type_predictions, type_classes)
@@ -227,9 +219,11 @@ def predict_api():
             "dominant_color": dominant_color_name
         }
 
-        return jsonify(result)
+        response = json.dumps(result, ensure_ascii=False)
+        app.logger.info("Response: %s", response)
+        return Response(response, content_type='application/json')
     except Exception as e:
-        app.logger.error(f"Error in /predict: {e}")
+        app.logger.error(f"Error in /predict: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
